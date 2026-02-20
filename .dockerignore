@@ -1,5 +1,5 @@
 # ============================================================================
-# DevChoreo — .dockerignore
+# DevChoreo Architecture — .dockerignore
 # ============================================================================
 
 # Version control
@@ -12,31 +12,18 @@
 *.swp
 *.swo
 
-# Python
+# Python (not used in this project)
 .venv
 venv
 __pycache__
 *.pyc
-*.pyo
-*.egg-info
-dist
-build
-.mypy_cache
-.pytest_cache
-.ruff_cache
-htmlcov
-coverage.xml
-.coverage
 
-# Node / Frontend build artifacts (copied separately if needed)
+# Node (not used in this project)
 node_modules
-frontend/node_modules
-frontend/dist
 
 # Environment & secrets
 .env
 .env.*
-!.env.example
 
 # Docker
 Dockerfile
@@ -46,10 +33,8 @@ docker-compose*.yml
 # CI/CD
 .github
 
-# Documentation
-*.md
+# Documentation (keep architecture-diagram.html — it's the main file)
 LICENSE
-architecture-diagram.html
 
 # OS
 .DS_Store
