@@ -1,0 +1,307 @@
+# ============================================================================
+# DevChoreo — GitHub Action for Marketplace
+# ============================================================================
+# A composite GitHub Action that sets up and runs the DevChoreo RAG Assistant
+# for automated documentation querying and ingestion in CI/CD pipelines.
+#
+# Usage:
+#   - uses: YOUR_ORG/DevChoreo@v1
+#     with:
+#       azure_openai_key: ${{ secrets.AZURE_OPENAI_KEY }}
+#       azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+#       milvus_uri: ${{ secrets.MILVUS_URI }}
+#       milvus_token: ${{ secrets.MILVUS_TOKEN }}
+# ============================================================================
+
+name: "DevChoreo RAG Assistant"
+description: "AI-Powered RAG Assistant for WSO2 Choreo — Ingest documentation, query knowledge bases, and generate intelligent responses using GPT-4 and vector search."
+author: "DevChoreo Team"
+
+branding:
+  icon: "message-circle"
+  color: "blue"
+
+# ──────────────────────────────────────────────────────────────
+# Inputs
+# ──────────────────────────────────────────────────────────────
+inputs:
+  azure_openai_key:
+    description: "Azure OpenAI API key for GPT-4 and embedding access"
+    required: true
+
+  azure_openai_endpoint:
+    description: "Azure OpenAI endpoint URL (e.g., https://your-resource.openai.azure.com/)"
+    required: true
+
+  azure_openai_api_version:
+    description: "Azure OpenAI API version"
+    required: false
+    default: "2024-02-01"
+
+  model_name:
+    description: "Azure OpenAI deployment name for chat completions"
+    required: false
+    default: "gpt-4"
+
+  embedding_model:
+    description: "Azure OpenAI deployment name for embeddings"
+    required: false
+    default: "text-embedding-ada-002"
+
+  milvus_uri:
+    description: "Milvus/Zilliz Cloud connection URI"
+    required: true
+
+  milvus_token:
+    description: "Milvus/Zilliz Cloud authentication token"
+    required: true
+
+  milvus_collection:
+    description: "Milvus collection name for vector storage"
+    required: false
+    default: "choreo_docs"
+
+  github_token:
+    description: "GitHub token for repository access and content ingestion"
+    required: false
+    default: ${{ github.token }}
+
+  google_vision_key:
+    description: "Google Cloud Vision API key for OCR processing"
+    required: false
+    default: ""
+
+  action:
+    description: "Action to perform: 'serve' (start server), 'ingest' (ingest docs), 'query' (single query), 'health' (health check)"
+    required: false
+    default: "health"
+
+  query:
+    description: "Query string (required when action is 'query')"
+    required: false
+    default: ""
+
+  ingest_repo:
+    description: "GitHub repository URL to ingest (required when action is 'ingest')"
+    required: false
+    default: ""
+
+  ingest_org:
+    description: "GitHub organization to bulk ingest (alternative to ingest_repo)"
+    required: false
+    default: ""
+
+  port:
+    description: "Port to run the server on"
+    required: false
+    default: "8000"
+
+  log_level:
+    description: "Logging level (DEBUG, INFO, WARNING, ERROR)"
+    required: false
+    default: "INFO"
+
+  python_version:
+    description: "Python version to use"
+    required: false
+    default: "3.12"
+
+# ──────────────────────────────────────────────────────────────
+# Outputs
+# ──────────────────────────────────────────────────────────────
+outputs:
+  endpoint_url:
+    description: "URL of the running DevChoreo API endpoint"
+    value: ${{ steps.run-action.outputs.endpoint_url }}
+
+  health_status:
+    description: "Health check status of the DevChoreo service"
+    value: ${{ steps.health-check.outputs.status }}
+
+  query_response:
+    description: "Response from a single query (when action is 'query')"
+    value: ${{ steps.run-action.outputs.query_response }}
+
+  ingest_result:
+    description: "Result of document ingestion (when action is 'ingest')"
+    value: ${{ steps.run-action.outputs.ingest_result }}
+
+  server_pid:
+    description: "PID of the running server process (when action is 'serve')"
+    value: ${{ steps.run-action.outputs.server_pid }}
+
+# ──────────────────────────────────────────────────────────────
+# Composite Steps
+# ──────────────────────────────────────────────────────────────
+runs:
+  using: "composite"
+  steps:
+    # ── Step 1: Setup Python ──
+    - name: Set up Python ${{ inputs.python_version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    # ── Step 2: Cache Dependencies ──
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-devchoreo-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-devchoreo-pip-
+
+    # ── Step 3: Install Dependencies ──
+    - name: Install dependencies
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f "${{ github.action_path }}/requirements.txt" ]; then
+          pip install -r "${{ github.action_path }}/requirements.txt"
+        fi
+
+    # ── Step 4: Configure Environment ──
+    - name: Configure environment
+      shell: bash
+      run: |
+        echo "AZURE_OPENAI_API_KEY=${{ inputs.azure_openai_key }}" >> $GITHUB_ENV
+        echo "AZURE_OPENAI_ENDPOINT=${{ inputs.azure_openai_endpoint }}" >> $GITHUB_ENV
+        echo "AZURE_OPENAI_API_VERSION=${{ inputs.azure_openai_api_version }}" >> $GITHUB_ENV
+        echo "AZURE_OPENAI_DEPLOYMENT_NAME=${{ inputs.model_name }}" >> $GITHUB_ENV
+        echo "AZURE_OPENAI_EMBEDDING_DEPLOYMENT=${{ inputs.embedding_model }}" >> $GITHUB_ENV
+        echo "MILVUS_URI=${{ inputs.milvus_uri }}" >> $GITHUB_ENV
+        echo "MILVUS_TOKEN=${{ inputs.milvus_token }}" >> $GITHUB_ENV
+        echo "MILVUS_COLLECTION_NAME=${{ inputs.milvus_collection }}" >> $GITHUB_ENV
+        echo "GITHUB_TOKEN=${{ inputs.github_token }}" >> $GITHUB_ENV
+        echo "GOOGLE_VISION_API_KEY=${{ inputs.google_vision_key }}" >> $GITHUB_ENV
+        echo "APP_ENV=production" >> $GITHUB_ENV
+        echo "LOG_LEVEL=${{ inputs.log_level }}" >> $GITHUB_ENV
+
+    # ── Step 5: Run Action ──
+    - name: Run DevChoreo action
+      id: run-action
+      shell: bash
+      run: |
+        ACTION="${{ inputs.action }}"
+        PORT="${{ inputs.port }}"
+        ACTION_PATH="${{ github.action_path }}"
+
+        echo "🚀 Running DevChoreo action: ${ACTION}"
+
+        case "${ACTION}" in
+          "serve")
+            echo "Starting DevChoreo server on port ${PORT}..."
+            cd "${ACTION_PATH}"
+            nohup uvicorn main:app --host 0.0.0.0 --port ${PORT} &
+            SERVER_PID=$!
+            echo "server_pid=${SERVER_PID}" >> $GITHUB_OUTPUT
+            echo "endpoint_url=http://localhost:${PORT}" >> $GITHUB_OUTPUT
+
+            # Wait for server to be ready
+            SECONDS=0
+            until curl -sf "http://localhost:${PORT}/api/health" > /dev/null 2>&1; do
+              if [ $SECONDS -ge 120 ]; then
+                echo "❌ Server failed to start within 120 seconds"
+                exit 1
+              fi
+              sleep 2
+            done
+            echo "✅ Server is running (PID: ${SERVER_PID})"
+            ;;
+
+          "ingest")
+            cd "${ACTION_PATH}"
+            if [ -n "${{ inputs.ingest_repo }}" ]; then
+              echo "Ingesting repository: ${{ inputs.ingest_repo }}"
+              RESPONSE=$(python -c "
+        import asyncio, json
+        from services.ingestion_service import IngestionService
+        svc = IngestionService()
+        result = asyncio.run(svc.ingest_github_repo('${{ inputs.ingest_repo }}'))
+        print(json.dumps(result))
+              ")
+              echo "ingest_result=${RESPONSE}" >> $GITHUB_OUTPUT
+              echo "✅ Ingestion complete"
+            elif [ -n "${{ inputs.ingest_org }}" ]; then
+              echo "Ingesting organization: ${{ inputs.ingest_org }}"
+              RESPONSE=$(python -c "
+        import asyncio, json
+        from services.github_service import GitHubService
+        svc = GitHubService()
+        result = asyncio.run(svc.ingest_org('${{ inputs.ingest_org }}'))
+        print(json.dumps(result))
+              ")
+              echo "ingest_result=${RESPONSE}" >> $GITHUB_OUTPUT
+              echo "✅ Organization ingestion complete"
+            else
+              echo "❌ Either 'ingest_repo' or 'ingest_org' must be provided for ingest action"
+              exit 1
+            fi
+            ;;
+
+          "query")
+            if [ -z "${{ inputs.query }}" ]; then
+              echo "❌ 'query' input is required for query action"
+              exit 1
+            fi
+            cd "${ACTION_PATH}"
+            RESPONSE=$(python -c "
+        import asyncio, json
+        from services.llm_service import LLMService
+        from services.context_manager import ContextManager
+        llm = LLMService()
+        ctx = ContextManager()
+        context = asyncio.run(ctx.get_context('${{ inputs.query }}'))
+        result = asyncio.run(llm.ask('${{ inputs.query }}', context))
+        print(json.dumps({'response': result}))
+            ")
+            echo "query_response=${RESPONSE}" >> $GITHUB_OUTPUT
+            echo "✅ Query completed"
+            ;;
+
+          "health")
+            echo "endpoint_url=http://localhost:${{ inputs.port }}" >> $GITHUB_OUTPUT
+            echo "✅ Health check mode — use the health-check step"
+            ;;
+
+          *)
+            echo "❌ Unknown action: ${ACTION}"
+            echo "   Valid actions: serve, ingest, query, health"
+            exit 1
+            ;;
+        esac
+
+    # ── Step 6: Health Check ──
+    - name: Health check
+      id: health-check
+      shell: bash
+      if: inputs.action == 'serve' || inputs.action == 'health'
+      run: |
+        PORT="${{ inputs.port }}"
+        ENDPOINT="http://localhost:${PORT}/api/health"
+
+        if curl -sf "${ENDPOINT}" > /dev/null 2>&1; then
+          HEALTH=$(curl -sf "${ENDPOINT}")
+          echo "status=healthy" >> $GITHUB_OUTPUT
+          echo "✅ DevChoreo is healthy"
+          echo "${HEALTH}" | python3 -m json.tool
+        else
+          echo "status=unhealthy" >> $GITHUB_OUTPUT
+          echo "⚠️ DevChoreo health check failed (service may not be running)"
+        fi
+
+    # ── Step 7: Summary ──
+    - name: Action summary
+      shell: bash
+      if: always()
+      run: |
+        echo "## 🚀 DevChoreo Action Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **Action** | \`${{ inputs.action }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Model** | \`${{ inputs.model_name }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Embedding** | \`${{ inputs.embedding_model }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Port** | \`${{ inputs.port }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Python** | \`${{ inputs.python_version }}\` |" >> $GITHUB_STEP_SUMMARY
+
