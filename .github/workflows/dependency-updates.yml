@@ -1,0 +1,130 @@
+# ============================================================================
+# DevChoreo — Dependency Updates (Auto-merge)
+# ============================================================================
+# Automatically approves and merges Dependabot PRs for patch and minor
+# updates after CI passes. Major updates require manual review.
+# ============================================================================
+
+name: Dependency Updates
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: read
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Metadata — Determine update type
+  # ──────────────────────────────────────────────────────────────
+  dependabot-metadata:
+    name: "Fetch Dependabot Metadata"
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    outputs:
+      dependency-names: ${{ steps.metadata.outputs.dependency-names }}
+      dependency-type: ${{ steps.metadata.outputs.dependency-type }}
+      update-type: ${{ steps.metadata.outputs.update-type }}
+      package-ecosystem: ${{ steps.metadata.outputs.package-ecosystem }}
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log metadata
+        run: |
+          echo "## 📦 Dependency Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Dependency** | ${{ steps.metadata.outputs.dependency-names }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Type** | ${{ steps.metadata.outputs.dependency-type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Update** | ${{ steps.metadata.outputs.update-type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Ecosystem** | ${{ steps.metadata.outputs.package-ecosystem }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ──────────────────────────────────────────────────────────────
+  # Auto-approve — Approve patch/minor updates
+  # ──────────────────────────────────────────────────────────────
+  auto-approve:
+    name: "Auto-approve Dependabot PR"
+    runs-on: ubuntu-latest
+    needs: dependabot-metadata
+    if: >-
+      needs.dependabot-metadata.outputs.update-type == 'version-update:semver-patch' ||
+      needs.dependabot-metadata.outputs.update-type == 'version-update:semver-minor'
+    steps:
+      - name: Approve PR
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add auto-approved label
+        run: gh pr edit "$PR_URL" --add-label "auto-approved"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ──────────────────────────────────────────────────────────────
+  # Auto-merge — Merge after CI passes
+  # ──────────────────────────────────────────────────────────────
+  auto-merge:
+    name: "Auto-merge Dependabot PR"
+    runs-on: ubuntu-latest
+    needs: [dependabot-metadata, auto-approve]
+    if: >-
+      needs.dependabot-metadata.outputs.update-type == 'version-update:semver-patch' ||
+      needs.dependabot-metadata.outputs.update-type == 'version-update:semver-minor'
+    steps:
+      - name: Enable auto-merge
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge summary
+        run: |
+          echo "## ✅ Auto-merge Enabled" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This PR will be automatically merged once all required checks pass." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dependency:** ${{ needs.dependabot-metadata.outputs.dependency-names }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Update Type:** ${{ needs.dependabot-metadata.outputs.update-type }}" >> $GITHUB_STEP_SUMMARY
+
+  # ──────────────────────────────────────────────────────────────
+  # Major Update — Flag for manual review
+  # ──────────────────────────────────────────────────────────────
+  major-update-notice:
+    name: "Flag Major Update"
+    runs-on: ubuntu-latest
+    needs: dependabot-metadata
+    if: needs.dependabot-metadata.outputs.update-type == 'version-update:semver-major'
+    steps:
+      - name: Add review-required label
+        run: gh pr edit "$PR_URL" --add-label "major-update,review-required"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on PR
+        run: |
+          gh pr comment "$PR_URL" --body "## ⚠️ Major Version Update
+
+          This PR contains a **major version update** for \`${{ needs.dependabot-metadata.outputs.dependency-names }}\`.
+
+          Major updates may contain **breaking changes**. Please review carefully before merging.
+
+          ### Checklist
+          - [ ] Reviewed changelog/release notes
+          - [ ] Checked for breaking API changes
+          - [ ] Updated affected code if necessary
+          - [ ] All tests pass with the new version"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
