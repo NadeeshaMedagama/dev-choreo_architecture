@@ -1,0 +1,252 @@
+# ============================================================================
+# DevChoreo — Publish to GitHub Packages (GHCR)
+# ============================================================================
+# Builds and publishes multi-platform Docker images to GitHub Container
+# Registry (ghcr.io) with proper tagging and attestation.
+# ============================================================================
+
+name: Publish to GitHub Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g., 1.0.0)"
+        required: true
+        type: string
+      is-prerelease:
+        description: "Is this a pre-release?"
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to publish"
+        required: true
+        type: string
+      is-prerelease:
+        description: "Is this a pre-release?"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Build & Push Multi-Platform Docker Image
+  # ──────────────────────────────────────────────────────────────
+  build-and-push:
+    name: "Build & Push Docker Image"
+    runs-on: ubuntu-latest
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Semantic versioning tags
+            type=semver,pattern={{version}},value=v${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ inputs.version }}
+            type=semver,pattern={{major}},value=v${{ inputs.version }}
+            # Latest tag (only for stable releases)
+            type=raw,value=latest,enable=${{ inputs.is-prerelease != true }}
+            # SHA tag
+            type=sha,prefix=
+          labels: |
+            org.opencontainers.image.title=DevChoreo
+            org.opencontainers.image.description=AI-Powered RAG Assistant for WSO2 Choreo Platform
+            org.opencontainers.image.vendor=DevChoreo
+            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}#readme
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ inputs.version }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+          provenance: true
+          sbom: true
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  # ──────────────────────────────────────────────────────────────
+  # Verify Published Image
+  # ──────────────────────────────────────────────────────────────
+  verify:
+    name: "Verify Published Image"
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and verify image
+        run: |
+          echo "🔍 Pulling published image..."
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.version }}
+
+          echo ""
+          echo "📋 Image details:"
+          docker inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.version }} | \
+            python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)[0]
+          print(f'  ID:      {data[\"Id\"][:19]}')
+          print(f'  Created: {data[\"Created\"]}')
+          print(f'  Size:    {data[\"Size\"] / 1024 / 1024:.1f} MB')
+          print(f'  Arch:    {data[\"Architecture\"]}')
+          "
+
+      - name: Verify image runs
+        run: |
+          echo "🔍 Verifying image starts correctly..."
+          docker run --rm -d \
+            --name verify-test \
+            -p 8000:8000 \
+            -e APP_ENV=testing \
+            -e AZURE_OPENAI_API_KEY=test \
+            -e AZURE_OPENAI_ENDPOINT=https://test.openai.azure.com/ \
+            -e MILVUS_URI=https://test.zillizcloud.com \
+            -e MILVUS_TOKEN=test \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.version }}
+
+          # Wait for startup
+          SECONDS=0
+          until curl -sf http://localhost:8000/api/health > /dev/null 2>&1; do
+            if [ $SECONDS -ge 60 ]; then
+              echo "❌ Image verification failed"
+              docker logs verify-test
+              exit 1
+            fi
+            sleep 3
+          done
+
+          echo "✅ Image verified successfully!"
+          docker stop verify-test
+
+  # ──────────────────────────────────────────────────────────────
+  # Security Scan — Published Image
+  # ──────────────────────────────────────────────────────────────
+  scan-published:
+    name: "Scan Published Image"
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      security-events: write
+      packages: read
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.version }}"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+  # ──────────────────────────────────────────────────────────────
+  # Publish Summary
+  # ──────────────────────────────────────────────────────────────
+  publish-summary:
+    name: "Publish Summary"
+    runs-on: ubuntu-latest
+    needs: [build-and-push, verify, scan-published]
+    if: always()
+    steps:
+      - name: Generate publish summary
+        run: |
+          echo "## 📦 Published to GitHub Packages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Docker Image" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Registry** | \`${{ env.REGISTRY }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image** | \`${{ env.IMAGE_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Version** | \`${{ inputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Digest** | \`${{ needs.build-and-push.outputs.image-digest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Platforms** | \`linux/amd64\`, \`linux/arm64\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Pre-release** | ${{ inputs.is-prerelease }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Command" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build & Push | ${{ needs.build-and-push.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Verification | ${{ needs.verify.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Scan | ${{ needs.scan-published.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+
