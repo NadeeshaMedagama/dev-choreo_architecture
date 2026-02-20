@@ -2,7 +2,7 @@
 # DevChoreo — CodeQL Security Analysis
 # ============================================================================
 # Performs automated security vulnerability scanning using GitHub CodeQL
-# for Python and JavaScript/TypeScript codebases.
+# for JavaScript/TypeScript codebases.
 # ============================================================================
 
 name: CodeQL Security Analysis
@@ -13,16 +13,6 @@ on:
   pull_request:
     branches: [master, develop]
   workflow_dispatch:
-    inputs:
-      language:
-        description: "Language to analyze (leave empty for all)"
-        required: false
-        type: choice
-        options:
-          - ""
-          - "python"
-          - "javascript-typescript"
-        default: ""
   schedule:
     # Run weekly on Monday at 06:00 UTC
     - cron: "0 6 * * 1"
@@ -37,20 +27,40 @@ permissions:
   security-events: write
 
 jobs:
-  analyze:
-    name: "CodeQL Analysis (${{ matrix.language }})"
+  # ──────────────────────────────────────────────────────────────
+  # Detect source code languages
+  # ──────────────────────────────────────────────────────────────
+  detect-languages:
+    name: "Detect Languages"
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ["python", "javascript-typescript"]
-        include:
-          - language: python
-            build-mode: none
-          - language: javascript-typescript
-            build-mode: none
+    outputs:
+      has-javascript: ${{ steps.detect.outputs.has_javascript }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
+      - name: Detect source code
+        id: detect
+        run: |
+          # Check for JavaScript/TypeScript source files
+          if find . -type f \( -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" \) \
+            -not -path "*/node_modules/*" -not -path "*/.venv/*" | grep -q .; then
+            echo "has_javascript=true" >> $GITHUB_OUTPUT
+            echo "✅ JavaScript/TypeScript source code detected"
+          else
+            echo "has_javascript=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No JavaScript/TypeScript source code found"
+          fi
+
+  # ──────────────────────────────────────────────────────────────
+  # CodeQL Analysis — JavaScript/TypeScript
+  # ──────────────────────────────────────────────────────────────
+  analyze-javascript:
+    name: "CodeQL Analysis (JavaScript/TypeScript)"
+    runs-on: ubuntu-latest
+    needs: detect-languages
+    if: needs.detect-languages.outputs.has-javascript == 'true'
+    timeout-minutes: 360
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -58,23 +68,14 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
-          # Use extended security queries for more comprehensive scanning
+          languages: javascript-typescript
+          build-mode: none
           queries: +security-extended,security-and-quality
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:${{ matrix.language }}"
-
-      - name: Upload SARIF results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: ../results/${{ matrix.language }}.sarif
-          category: "/language:${{ matrix.language }}"
-        continue-on-error: true
+          category: "/language:javascript-typescript"
 
   # ──────────────────────────────────────────────────────────────
   # Security Summary
@@ -82,7 +83,7 @@ jobs:
   security-summary:
     name: "Security Summary"
     runs-on: ubuntu-latest
-    needs: analyze
+    needs: [detect-languages, analyze-javascript]
     if: always()
     steps:
       - name: Generate security summary
@@ -91,8 +92,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Language | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Python | ${{ needs.analyze.result == 'success' && '✅ Passed' || '❌ Issues Found' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| JavaScript/TypeScript | ${{ needs.analyze.result == 'success' && '✅ Passed' || '❌ Issues Found' }} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.detect-languages.outputs.has-javascript }}" = "true" ]; then
+            echo "| JavaScript/TypeScript | ${{ needs.analyze-javascript.result == 'success' && '✅ Passed' || '❌ Issues Found' }} |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| JavaScript/TypeScript | ⏭️ Skipped (no source code) |" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📋 View detailed results in the **Security** tab of this repository." >> $GITHUB_STEP_SUMMARY
 
