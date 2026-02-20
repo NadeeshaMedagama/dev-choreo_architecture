@@ -1,0 +1,57 @@
+# ============================================================================
+# DevChoreo — .dockerignore
+# ============================================================================
+
+# Version control
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Python
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist
+build
+.mypy_cache
+.pytest_cache
+.ruff_cache
+htmlcov
+coverage.xml
+.coverage
+
+# Node / Frontend build artifacts (copied separately if needed)
+node_modules
+frontend/node_modules
+frontend/dist
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github
+
+# Documentation
+*.md
+LICENSE
+architecture-diagram.html
+
+# OS
+.DS_Store
+Thumbs.db
+
