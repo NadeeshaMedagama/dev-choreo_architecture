@@ -19,6 +19,7 @@ on:
         required: false
         type: boolean
         default: false
+  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
