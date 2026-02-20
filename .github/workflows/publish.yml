@@ -90,12 +90,12 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=v${{ inputs.version }}
             type=semver,pattern={{major}},value=v${{ inputs.version }}
             # Latest tag (only for stable releases)
-            type=raw,value=latest,enable=${{ inputs.is-prerelease != true }}
+            type=raw,value=latest,enable=${{ !inputs.is-prerelease }}
             # SHA tag
             type=sha,prefix=
           labels: |
-            org.opencontainers.image.title=DevChoreo
-            org.opencontainers.image.description=AI-Powered RAG Assistant for WSO2 Choreo Platform
+            org.opencontainers.image.title=DevChoreo Architecture
+            org.opencontainers.image.description=System Architecture Diagram for the DevChoreo RAG Assistant
             org.opencontainers.image.vendor=DevChoreo
             org.opencontainers.image.version=${{ inputs.version }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -148,48 +148,37 @@ jobs:
       - name: Pull and verify image
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ steps.lowercase.outputs.image_name }}:${{ inputs.version }}"
-          echo "🔍 Pulling published image..."
+          echo "Pulling published image..."
           docker pull "${IMAGE}"
-
           echo ""
-          echo "📋 Image details:"
-          docker inspect "${IMAGE}" | \
-            python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)[0]
-          print(f'  ID:      {data[\"Id\"][:19]}')
-          print(f'  Created: {data[\"Created\"]}')
-          print(f'  Size:    {data[\"Size\"] / 1024 / 1024:.1f} MB')
-          print(f'  Arch:    {data[\"Architecture\"]}')
-          "
+          echo "Image details:"
+          echo "  ID:      $(docker inspect "${IMAGE}" | jq -r '.[0].Id')"
+          echo "  Created: $(docker inspect "${IMAGE}" | jq -r '.[0].Created')"
+          echo "  Arch:    $(docker inspect "${IMAGE}" | jq -r '.[0].Architecture')"
 
       - name: Verify image runs
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ steps.lowercase.outputs.image_name }}:${{ inputs.version }}"
-          echo "🔍 Verifying image starts correctly..."
-          docker run --rm -d \
-            --name verify-test \
-            -p 8000:8000 \
-            -e APP_ENV=testing \
-            -e AZURE_OPENAI_API_KEY=test \
-            -e AZURE_OPENAI_ENDPOINT=https://test.openai.azure.com/ \
-            -e MILVUS_URI=https://test.zillizcloud.com \
-            -e MILVUS_TOKEN=test \
-            "${IMAGE}"
-
-          # Wait for startup
+          echo "Verifying image starts correctly..."
+          docker run -d --name verify-test -p 8080:80 "${IMAGE}"
           SECONDS=0
-          until curl -sf http://localhost:8000/api/health > /dev/null 2>&1; do
-            if [ $SECONDS -ge 60 ]; then
-              echo "❌ Image verification failed"
+          until curl -sf http://localhost:8080 > /dev/null 2>&1; do
+            if [ $SECONDS -ge 30 ]; then
+              echo "Image verification failed"
               docker logs verify-test
+              docker rm -f verify-test
               exit 1
             fi
-            sleep 3
+            sleep 2
           done
-
-          echo "✅ Image verified successfully!"
-          docker stop verify-test
+          if curl -s http://localhost:8080 | grep -q "DevChoreo"; then
+            echo "Image verified - architecture diagram served correctly"
+          else
+            echo "Expected content not found"
+            docker rm -f verify-test
+            exit 1
+          fi
+          docker rm -f verify-test
 
   # ──────────────────────────────────────────────────────────────
   # Security Scan — Published Image
@@ -253,7 +242,7 @@ jobs:
           echo "| **Version** | \`${{ inputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Digest** | \`${{ needs.build-and-push.outputs.image-digest }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Platforms** | \`linux/amd64\`, \`linux/arm64\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Pre-release** | ${{ inputs.is-prerelease }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Pre-release** | \`${{ inputs.is-prerelease }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pull Command" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
