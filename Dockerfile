@@ -21,7 +21,8 @@ RUN apt-get update && \
 
 # Install Python dependencies
 COPY requirements.txt* ./
-RUN if [ -f requirements.txt ]; then \
+RUN mkdir -p /install && \
+    if [ -f requirements.txt ]; then \
         pip install --no-cache-dir --prefix=/install -r requirements.txt; \
     fi
 
