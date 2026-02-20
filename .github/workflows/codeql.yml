@@ -1,0 +1,87 @@
+# ============================================================================
+# DevChoreo — CodeQL Security Analysis
+# ============================================================================
+# Performs automated security vulnerability scanning using GitHub CodeQL
+# for Python and JavaScript/TypeScript codebases.
+# ============================================================================
+
+name: CodeQL Security Analysis
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+    branches: [master, develop]
+  schedule:
+    # Run weekly on Monday at 06:00 UTC
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: "CodeQL Analysis (${{ matrix.language }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["python", "javascript-typescript"]
+        include:
+          - language: python
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # Use extended security queries for more comprehensive scanning
+          queries: +security-extended,security-and-quality
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+      - name: Upload SARIF results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ../results/${{ matrix.language }}.sarif
+          category: "/language:${{ matrix.language }}"
+        continue-on-error: true
+
+  # ──────────────────────────────────────────────────────────────
+  # Security Summary
+  # ──────────────────────────────────────────────────────────────
+  security-summary:
+    name: "Security Summary"
+    runs-on: ubuntu-latest
+    needs: analyze
+    if: always()
+    steps:
+      - name: Generate security summary
+        run: |
+          echo "## 🔒 CodeQL Security Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Language | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Python | ${{ needs.analyze.result == 'success' && '✅ Passed' || '❌ Issues Found' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| JavaScript/TypeScript | ${{ needs.analyze.result == 'success' && '✅ Passed' || '❌ Issues Found' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📋 View detailed results in the **Security** tab of this repository." >> $GITHUB_STEP_SUMMARY
+
