@@ -1,8 +1,8 @@
 # ============================================================================
-# DevChoreo — Docker Build & Test
+# DevChoreo Architecture — Docker Build & Test
 # ============================================================================
 # Builds Docker images and runs container health checks to ensure the
-# application starts correctly and all endpoints are reachable.
+# architecture diagram is served correctly.
 # ============================================================================
 
 name: Docker Build & Test
@@ -13,17 +13,15 @@ on:
     paths:
       - "Dockerfile*"
       - "docker-compose*.yml"
-      - "requirements*.txt"
+      - "architecture-diagram.html"
       - ".dockerignore"
-      - "**.py"
   pull_request:
     branches: [master, develop]
     paths:
       - "Dockerfile*"
       - "docker-compose*.yml"
-      - "requirements*.txt"
+      - "architecture-diagram.html"
       - ".dockerignore"
-      - "**.py"
   workflow_dispatch:
 
 concurrency:
@@ -38,8 +36,8 @@ permissions:
 env:
   DOCKERHUB_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/devchoreo
   IMAGE_NAME: devchoreo
-  HEALTH_CHECK_URL: http://localhost:8000/api/health
-  HEALTH_CHECK_TIMEOUT: 120
+  HEALTH_CHECK_URL: http://localhost:80
+  HEALTH_CHECK_TIMEOUT: 60
 
 jobs:
   # ──────────────────────────────────────────────────────────────
@@ -59,6 +57,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop')
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -76,16 +75,14 @@ jobs:
             type=ref,event=pr
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Build Docker image (local)
         id: build
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
-          load: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop')) }}
-          tags: |
-            ${{ steps.meta.outputs.tags }}
-            ${{ env.IMAGE_NAME }}:local
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:local
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -93,11 +90,21 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
 
+      - name: Push to Docker Hub
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop')
+        run: |
+          echo '${{ steps.meta.outputs.tags }}' | while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            echo "🏷️ Tagging and pushing: $TAG"
+            docker tag ${{ env.IMAGE_NAME }}:local "$TAG"
+            docker push "$TAG"
+          done
+
       - name: Inspect image
         run: |
           docker images
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 🐳 Docker Image Built & Pushed to Docker Hub" >> $GITHUB_STEP_SUMMARY
+          echo "## 🐳 Docker Image Built" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -140,12 +147,7 @@ jobs:
         run: |
           docker run -d \
             --name devchoreo-test \
-            -p 8000:8000 \
-            -e APP_ENV=testing \
-            -e AZURE_OPENAI_API_KEY=test-key \
-            -e AZURE_OPENAI_ENDPOINT=https://test.openai.azure.com/ \
-            -e MILVUS_URI=https://test.zillizcloud.com \
-            -e MILVUS_TOKEN=test-token \
+            -p 80:80 \
             ${{ env.IMAGE_NAME }}:local
 
       - name: Wait for health check
@@ -160,26 +162,30 @@ jobs:
               exit 1
             fi
             echo "  Waiting... (${SECONDS}s elapsed)"
-            sleep 5
+            sleep 3
           done
           echo "✅ Container is healthy after ${SECONDS}s"
 
-      - name: Verify endpoints
+      - name: Verify HTML is served
         run: |
-          echo "🔍 Verifying API endpoints..."
+          echo "🔍 Verifying architecture diagram is served..."
 
-          # Health endpoint
-          echo -n "  /api/health: "
+          # Check root serves the HTML
+          echo -n "  / (architecture diagram): "
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ env.HEALTH_CHECK_URL }})
           if [ "$STATUS" = "200" ]; then echo "✅ $STATUS"; else echo "❌ $STATUS"; exit 1; fi
 
-          # Metrics endpoint
-          echo -n "  /metrics: "
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/metrics)
-          if [ "$STATUS" = "200" ]; then echo "✅ $STATUS"; else echo "❌ $STATUS"; exit 1; fi
+          # Verify content contains expected title
+          echo -n "  Content check: "
+          if curl -s ${{ env.HEALTH_CHECK_URL }} | grep -q "DevChoreo"; then
+            echo "✅ Architecture diagram content verified"
+          else
+            echo "❌ Expected content not found"
+            exit 1
+          fi
 
           echo ""
-          echo "✅ All endpoint checks passed!"
+          echo "✅ All checks passed!"
 
       - name: Container resource usage
         run: docker stats devchoreo-test --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
@@ -203,86 +209,10 @@ jobs:
         run: |
           echo "## 🏥 Container Health Check" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Endpoint | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| \`/api/health\` | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-          echo "| \`/metrics\` | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-
-  # ──────────────────────────────────────────────────────────────
-  # Docker Compose Integration Test
-  # ──────────────────────────────────────────────────────────────
-  docker-compose-test:
-    name: "Docker Compose Test"
-    runs-on: ubuntu-latest
-    needs: docker-build
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Check for docker-compose file
-        id: check-compose
-        run: |
-          if ls docker-compose*.yml 1> /dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⏭️ No docker-compose file found, skipping test" >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Create test .env file
-        if: steps.check-compose.outputs.exists == 'true'
-        run: |
-          cat > .env << 'EOF'
-          APP_ENV=testing
-          AZURE_OPENAI_API_KEY=test-key
-          AZURE_OPENAI_ENDPOINT=https://test.openai.azure.com/
-          AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4
-          AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
-          MILVUS_URI=https://test.zillizcloud.com
-          MILVUS_TOKEN=test-token
-          GITHUB_TOKEN=test-token
-          LOG_LEVEL=INFO
-          EOF
-
-      - name: Start services with Docker Compose
-        if: steps.check-compose.outputs.exists == 'true'
-        run: docker compose up -d --build
-
-      - name: Wait for services
-        if: steps.check-compose.outputs.exists == 'true'
-        run: |
-          echo "⏳ Waiting for services to start..."
-          SECONDS=0
-          until curl -sf http://localhost:8000/api/health > /dev/null 2>&1; do
-            if [ $SECONDS -ge ${{ env.HEALTH_CHECK_TIMEOUT }} ]; then
-              echo "❌ Services failed to start"
-              docker compose logs
-              exit 1
-            fi
-            sleep 5
-          done
-          echo "✅ All services are running after ${SECONDS}s"
-
-      - name: Run integration checks
-        if: steps.check-compose.outputs.exists == 'true'
-        run: |
-          echo "🔍 Running integration checks..."
-          curl -sf http://localhost:8000/api/health | python3 -m json.tool
-          echo "✅ Integration checks passed!"
-
-      - name: Cleanup
-        if: always() && steps.check-compose.outputs.exists == 'true'
-        run: |
-          docker compose logs > /tmp/compose-logs.txt 2>&1 || true
-          docker compose down -v || true
-
-      - name: Upload compose logs
-        if: always() && steps.check-compose.outputs.exists == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-compose-logs
-          path: /tmp/compose-logs.txt
-          retention-days: 7
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| HTML served at \`/\` | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Content verification | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
 
   # ──────────────────────────────────────────────────────────────
   # Security Scan — Trivy
