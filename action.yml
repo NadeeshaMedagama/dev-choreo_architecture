@@ -14,7 +14,7 @@
 # ============================================================================
 
 name: "DevChoreo RAG Assistant"
-description: "AI-Powered RAG Assistant for WSO2 Choreo — Ingest documentation, query knowledge bases, and generate intelligent responses using GPT-4 and vector search."
+description: "AI assistant delivering context-aware Choreo documentation answers using RAG."
 author: "DevChoreo Team"
 
 branding:
