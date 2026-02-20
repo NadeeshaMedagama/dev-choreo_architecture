@@ -95,7 +95,7 @@ jobs:
   ci:
     name: "Run CI Pipeline"
     needs: validate
-    uses: ./.github/workflows/ci-cd.yml
+    uses: /github/workflows/ci-cd.yml
     permissions:
       contents: read
       packages: write
