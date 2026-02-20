@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevChoreo — System Architecture</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0B1120;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 40px 50px;
+            overflow-x: hidden;
+        }
+
+        /* ─── HEADER ─── */
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .header h1 {
+            font-size: 36px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.5px;
+        }
+        .header p {
+            font-size: 16px;
+            color: #94a3b8;
+            margin-top: 6px;
+            font-weight: 400;
+        }
+
+        /* ─── LAYER WRAPPER ─── */
+        .architecture {
+            max-width: 1300px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: relative;
+        }
+
+        /* ─── CONNECTOR ARROWS ─── */
+        .connector {
+            display: flex;
+            justify-content: center;
+            height: 28px;
+            position: relative;
+        }
+        .connector::before {
+            content: '';
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(180deg, rgba(148,163,184,0.6), rgba(148,163,184,0.2));
+        }
+        .connector::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 8px solid rgba(148,163,184,0.5);
+        }
+
+        /* ─── LAYER BOX ─── */
+        .layer {
+            border-radius: 16px;
+            padding: 22px 28px;
+            position: relative;
+            overflow: hidden;
+        }
+        .layer::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 16px;
+            padding: 1px;
+            background: linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.03));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+        }
+
+        .layer-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .layer-label .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* ─── USER LAYER ─── */
+        .layer-user {
+            background: linear-gradient(135deg, rgba(30,41,59,0.8), rgba(15,23,42,0.9));
+            text-align: center;
+            padding: 18px;
+        }
+        .user-icon {
+            font-size: 42px;
+            margin-bottom: 4px;
+        }
+        .user-label {
+            font-size: 14px;
+            color: #cbd5e1;
+            font-weight: 500;
+        }
+
+        /* ─── FRONTEND LAYER ─── */
+        .layer-frontend {
+            background: linear-gradient(135deg, rgba(30,58,95,0.7), rgba(15,33,68,0.8));
+        }
+        .layer-frontend .layer-label { color: #60a5fa; }
+        .layer-frontend .dot { background: #3b82f6; box-shadow: 0 0 8px rgba(59,130,246,0.5); }
+
+        /* ─── API LAYER ─── */
+        .layer-api {
+            background: linear-gradient(135deg, rgba(19,78,74,0.7), rgba(13,56,52,0.8));
+        }
+        .layer-api .layer-label { color: #2dd4bf; }
+        .layer-api .dot { background: #14b8a6; box-shadow: 0 0 8px rgba(20,184,166,0.5); }
+
+        /* ─── SERVICES LAYER ─── */
+        .layer-services {
+            background: linear-gradient(135deg, rgba(30,27,75,0.7), rgba(20,18,55,0.85));
+        }
+        .layer-services .layer-label { color: #a78bfa; }
+        .layer-services .dot { background: #8b5cf6; box-shadow: 0 0 8px rgba(139,92,246,0.5); }
+
+        /* ─── EXTERNAL LAYER ─── */
+        .layer-external {
+            background: linear-gradient(135deg, rgba(69,26,3,0.5), rgba(50,20,3,0.7));
+        }
+        .layer-external .layer-label { color: #fbbf24; }
+        .layer-external .dot { background: #f59e0b; box-shadow: 0 0 8px rgba(245,158,11,0.5); }
+
+        /* ─── OBSERVABILITY LAYER ─── */
+        .layer-obs {
+            background: linear-gradient(135deg, rgba(5,46,22,0.6), rgba(3,33,15,0.8));
+        }
+        .layer-obs .layer-label { color: #4ade80; }
+        .layer-obs .dot { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,0.5); }
+
+        /* ─── ITEM BADGES ─── */
+        .items {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+        }
+        .item {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: #cbd5e1;
+            backdrop-filter: blur(4px);
+            transition: all 0.2s ease;
+        }
+        .item:hover {
+            background: rgba(255,255,255,0.1);
+            border-color: rgba(255,255,255,0.15);
+            transform: translateY(-1px);
+        }
+        .item .item-label {
+            font-weight: 600;
+            color: #f1f5f9;
+            display: block;
+            margin-bottom: 2px;
+            font-size: 13px;
+        }
+        .item .item-desc {
+            font-size: 10.5px;
+            color: #94a3b8;
+            font-weight: 400;
+        }
+
+        /* ─── THREE-COLUMN LAYOUT ─── */
+        .columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+        }
+        .column {
+            background: rgba(0,0,0,0.25);
+            border-radius: 12px;
+            padding: 16px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .column-title {
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .column .items {
+            flex-direction: column;
+        }
+        .column .item {
+            width: 100%;
+            text-align: left;
+        }
+
+        .col-ai .column-title { color: #a78bfa; }
+        .col-data .column-title { color: #38bdf8; }
+        .col-quality .column-title { color: #f472b6; }
+
+        /* ─── EXTERNAL SERVICES GRID ─── */
+        .ext-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+        .ext-card {
+            background: rgba(245,158,11,0.08);
+            border: 1px solid rgba(245,158,11,0.15);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            transition: all 0.2s ease;
+        }
+        .ext-card:hover {
+            background: rgba(245,158,11,0.12);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(245,158,11,0.1);
+        }
+        .ext-card .ext-icon { font-size: 28px; margin-bottom: 6px; }
+        .ext-card .ext-name { font-size: 14px; font-weight: 700; color: #fde68a; }
+        .ext-card .ext-desc { font-size: 11px; color: #d4a574; margin-top: 4px; }
+
+        /* ─── BOTTOM ROW ─── */
+        .bottom-row {
+            display: grid;
+            grid-template-columns: 3fr 1fr;
+            gap: 16px;
+        }
+
+        /* ─── OBS ITEMS ─── */
+        .obs-flow {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .obs-item {
+            background: rgba(34,197,94,0.1);
+            border: 1px solid rgba(34,197,94,0.2);
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #86efac;
+        }
+        .obs-arrow {
+            color: #4ade80;
+            font-size: 16px;
+        }
+
+        /* ─── HEADER TECH BADGES ─── */
+        .tech-row {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .tech-badge {
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+        .tech-badge.react { background: rgba(97,218,251,0.15); color: #61dafb; border: 1px solid rgba(97,218,251,0.2); }
+        .tech-badge.vite { background: rgba(189,147,249,0.15); color: #bd93f9; border: 1px solid rgba(189,147,249,0.2); }
+        .tech-badge.tailwind { background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.2); }
+
+        .tech-badge.fastapi { background: rgba(0,150,136,0.15); color: #26a69a; border: 1px solid rgba(0,150,136,0.2); }
+        .tech-badge.python { background: rgba(255,213,79,0.15); color: #ffd54f; border: 1px solid rgba(255,213,79,0.2); }
+
+        /* ─── MULTI-CONNECTOR ─── */
+        .multi-connector {
+            display: flex;
+            justify-content: space-around;
+            height: 28px;
+            position: relative;
+            padding: 0 100px;
+        }
+        .multi-connector .arrow-line {
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(180deg, rgba(148,163,184,0.5), rgba(148,163,184,0.15));
+            position: relative;
+        }
+        .multi-connector .arrow-line::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 6px solid rgba(148,163,184,0.4);
+        }
+
+        /* ─── ENDPOINT BADGES ─── */
+        .endpoint {
+            background: rgba(45,212,191,0.1);
+            border: 1px solid rgba(45,212,191,0.2);
+            border-radius: 6px;
+            padding: 5px 10px;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 11px;
+            color: #5eead4;
+        }
+
+        /* ─── FOOTER ─── */
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            font-size: 11px;
+            color: #475569;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ─── HEADER ─── -->
+    <div class="header">
+        <h1>DevChoreo — System Architecture</h1>
+        <p>AI-Powered RAG Assistant for the WSO2 Choreo Platform</p>
+    </div>
+
+    <div class="architecture">
+
+        <!-- ═══ LAYER 1: USER ═══ -->
+        <div class="layer layer-user">
+            <div class="user-icon">👤</div>
+            <div class="user-label">Web Browser · HTTPS</div>
+        </div>
+
+        <div class="connector"></div>
+
+        <!-- ═══ LAYER 2: FRONTEND ═══ -->
+        <div class="layer layer-frontend">
+            <div class="layer-label">
+                <span class="dot"></span> FRONTEND
+                <span style="margin-left: auto; font-size:10px; font-weight:400; color:#94a3b8">React 18 + Vite + Tailwind CSS</span>
+            </div>
+            <div class="items">
+                <div class="item">
+                    <span class="item-label">💬 Chat UI</span>
+                    <span class="item-desc">App.jsx · ChatInput.jsx</span>
+                </div>
+                <div class="item">
+                    <span class="item-label">📝 Message Renderer</span>
+                    <span class="item-desc">Markdown · Code · Sources</span>
+                </div>
+                <div class="item">
+                    <span class="item-label">📊 Mermaid Diagrams</span>
+                    <span class="item-desc">Interactive Zoom · Fullscreen</span>
+                </div>
+                <div class="item">
+                    <span class="item-label">📂 Sidebar</span>
+                    <span class="item-desc">Multi-Chat · Search · CRUD</span>
+                </div>
+                <div class="item">
+                    <span class="item-label">⚡ SSE Streaming</span>
+                    <span class="item-desc">Progressive Token Display</span>
+                </div>
+                <div class="item">
+                    <span class="item-label">💾 localStorage</span>
+                    <span class="item-desc">History · Theme · Summary</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="connector"></div>
+
+        <!-- ═══ LAYER 3: API GATEWAY ═══ -->
+        <div class="layer layer-api">
+            <div class="layer-label">
+                <span class="dot"></span> BACKEND API GATEWAY
+                <span style="margin-left: auto; font-size:10px; font-weight:400; color:#94a3b8">FastAPI · Python 3.12+ · Uvicorn ASGI</span>
+            </div>
+            <div class="items" style="margin-bottom:10px;">
+                <div class="endpoint">/api/ask/stream</div>
+                <div class="endpoint">/api/ask</div>
+                <div class="endpoint">/api/ask_graph</div>
+                <div class="endpoint">/api/ingest/github</div>
+                <div class="endpoint">/api/ingest/org</div>
+                <div class="endpoint">/api/webhook/github</div>
+                <div class="endpoint">/api/health</div>
+                <div class="endpoint">/metrics</div>
+            </div>
+            <div class="items">
+                <div class="item" style="font-size:11px">
+                    <span style="color:#5eead4; font-weight:600">CORS Middleware</span> · 
+                    <span style="color:#5eead4; font-weight:600">Metrics Middleware</span> · 
+                    <span style="color:#5eead4; font-weight:600">Lazy Initialization</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="connector"></div>
+
+        <!-- ═══ LAYER 4: CORE SERVICES ═══ -->
+        <div class="layer layer-services">
+            <div class="layer-label">
+                <span class="dot"></span> CORE SERVICES
+            </div>
+            <div class="columns">
+                <!-- Column 1: AI Pipeline -->
+                <div class="column col-ai">
+                    <div class="column-title">🧠 AI & RAG Pipeline</div>
+                    <div class="items">
+                        <div class="item">
+                            <span class="item-label">LLMService</span>
+                            <span class="item-desc">GPT-4 Chat · ada-002 Embeddings · Streaming</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">ConversationMemoryManager</span>
+                            <span class="item-desc">Token Tracking · Smart Summarization · 75% Trigger</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">ContextManager</span>
+                            <span class="item-desc">Query → Embed → Vector Search → Retrieve</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">DiagramDetectionService</span>
+                            <span class="item-desc">Mermaid Type Detection · Prompt Enhancement</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">RAGGraph</span>
+                            <span class="item-desc">LangGraph · LangChain · Multi-step Reasoning</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 2: Data Processing -->
+                <div class="column col-data">
+                    <div class="column-title">📦 Data Processing</div>
+                    <div class="items">
+                        <div class="item">
+                            <span class="item-label">IngestionService</span>
+                            <span class="item-desc">GitHub → Chunk → Embed → Store · SHA Dedup</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">DocumentChunker</span>
+                            <span class="item-desc">3000-char Chunks · 200-char Overlap · Pre-split</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">GitHubService</span>
+                            <span class="item-desc">API Client · Org Bulk Ingestion · Webhooks</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">MarkdownProcessor</span>
+                            <span class="item-desc">Clean · Normalize · Remove Images</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">ImageProcessingService</span>
+                            <span class="item-desc">Google Vision OCR · Text Extraction</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 3: Quality -->
+                <div class="column col-quality">
+                    <div class="column-title">✅ Quality & Validation</div>
+                    <div class="items">
+                        <div class="item">
+                            <span class="item-label">URLValidator</span>
+                            <span class="item-desc">Concurrent HTTP HEAD · Caching · 404 Prevention</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">URLGroundingService</span>
+                            <span class="item-desc">Link Correctness · Registry Lookup</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">ChoreoRepoRegistry</span>
+                            <span class="item-desc">30+ Components · Monorepo URL Auto-Fix</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">LLMRepoMatcher</span>
+                            <span class="item-desc">Intelligent Repo Search · Context Matching</span>
+                        </div>
+                        <div class="item">
+                            <span class="item-label">VectorClient</span>
+                            <span class="item-desc">PyMilvus SDK · Cosine Search · Batch Insert</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="multi-connector">
+            <div class="arrow-line"></div>
+            <div class="arrow-line"></div>
+            <div class="arrow-line"></div>
+            <div class="arrow-line"></div>
+        </div>
+
+        <!-- ═══ LAYER 5: EXTERNAL + OBS ═══ -->
+        <div class="bottom-row">
+            <!-- External Services -->
+            <div class="layer layer-external">
+                <div class="layer-label">
+                    <span class="dot"></span> EXTERNAL CLOUD SERVICES
+                </div>
+                <div class="ext-grid">
+                    <div class="ext-card">
+                        <div class="ext-icon">🤖</div>
+                        <div class="ext-name">Azure OpenAI</div>
+                        <div class="ext-desc">GPT-4 Chat Completions<br>text-embedding-ada-002<br>1536 Dimensions</div>
+                    </div>
+                    <div class="ext-card">
+                        <div class="ext-icon">🗄️</div>
+                        <div class="ext-name">Milvus Cloud</div>
+                        <div class="ext-desc">Zilliz Serverless<br>Cosine Similarity<br>Vector Storage</div>
+                    </div>
+                    <div class="ext-card">
+                        <div class="ext-icon">🐙</div>
+                        <div class="ext-name">GitHub API</div>
+                        <div class="ext-desc">Repository Content<br>Webhooks<br>Org Operations</div>
+                    </div>
+                    <div class="ext-card">
+                        <div class="ext-icon">👁️</div>
+                        <div class="ext-name">Google Vision</div>
+                        <div class="ext-desc">Cloud OCR API<br>Image Text Extraction</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Observability -->
+            <div class="layer layer-obs">
+                <div class="layer-label">
+                    <span class="dot"></span> OBSERVABILITY
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    <div class="obs-flow">
+                        <div class="obs-item">Prometheus<br><span style="font-size:10px;font-weight:400;color:#6ee7b7">23+ Metrics</span></div>
+                    </div>
+                    <div style="text-align:center;color:#4ade80">↓</div>
+                    <div class="obs-flow">
+                        <div class="obs-item">Grafana<br><span style="font-size:10px;font-weight:400;color:#6ee7b7">8 Panels</span></div>
+                    </div>
+                    <div style="text-align:center;color:#4ade80">↓</div>
+                    <div class="obs-flow">
+                        <div class="obs-item">Alertmanager<br><span style="font-size:10px;font-weight:400;color:#6ee7b7">7 Alert Rules</span></div>
+                    </div>
+                    <div style="margin-top:8px; text-align:center;">
+                        <div class="obs-item" style="display:inline-block">Structured Logs<br><span style="font-size:10px;font-weight:400;color:#6ee7b7">JSON · Rotation</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ─── DEPLOYMENT INFO BAR ─── -->
+    <div style="max-width:1300px; margin:20px auto 0; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 16px; font-size:11px; color:#94a3b8;">
+            🐳 <strong style="color:#e2e8f0">Docker</strong> · Python 3.11-slim · Non-root Container
+        </div>
+        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 16px; font-size:11px; color:#94a3b8;">
+            ☁️ <strong style="color:#e2e8f0">Choreo Platform</strong> · WSO2 · API Gateway
+        </div>
+        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 16px; font-size:11px; color:#94a3b8;">
+            ⚡ <strong style="color:#e2e8f0">Startup</strong> · &lt;5s · Lazy Initialization
+        </div>
+        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 16px; font-size:11px; color:#94a3b8;">
+            🔒 <strong style="color:#e2e8f0">Security</strong> · Choreo Secrets · .env
+        </div>
+        <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px 16px; font-size:11px; color:#94a3b8;">
+            📡 <strong style="color:#e2e8f0">Streaming</strong> · SSE · First Token 1-2s
+        </div>
+    </div>
+
+    <div class="footer">
+        DevChoreo v1.0 · February 2026 · Built with FastAPI + React + Azure OpenAI + Milvus Cloud
+    </div>
+
+</body>
+</html>
