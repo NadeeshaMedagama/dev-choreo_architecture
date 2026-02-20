@@ -111,54 +111,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Build backend package
-        run: |
-          if [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
-            pip install build
-            python -m build --sdist --wheel --outdir dist/
-          else
-            echo "⏭️ No pyproject.toml or setup.py found, skipping Python build"
-          fi
-
-      - name: Build frontend
-        run: |
-          if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
-            cd frontend
-            npm ci
-            npm run build
-          else
-            echo "⏭️ No frontend/ directory found, skipping frontend build"
-          fi
-
       - name: Create release archive
         run: |
           VERSION=${{ needs.validate.outputs.version }}
           mkdir -p release
 
-          # Backend archive
-          tar -czf release/devchoreo-backend-${VERSION}.tar.gz \
-            --exclude='.git' \
-            --exclude='frontend' \
-            --exclude='__pycache__' \
-            --exclude='.env' \
-            --exclude='venv' \
-            .
-
-          # Frontend archive (only if frontend build exists)
-          if [ -d "frontend/dist" ]; then
-            tar -czf release/devchoreo-frontend-${VERSION}.tar.gz \
-              -C frontend/dist .
-          fi
+          # Architecture diagram archive
+          tar -czf release/devchoreo-architecture-${VERSION}.tar.gz \
+            architecture-diagram.html \
+            Dockerfile \
+            action.yml \
+            README.md
 
           # Generate checksums
           cd release
