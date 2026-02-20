@@ -95,7 +95,7 @@ jobs:
   ci:
     name: "Run CI Pipeline"
     needs: validate
-    uses: /github/workflows/ci-cd.yml
+    uses: ./.github/workflows/ci-cd.yml
     permissions:
       contents: read
       packages: write
@@ -123,14 +123,22 @@ jobs:
 
       - name: Build backend package
         run: |
-          pip install build
-          python -m build --sdist --wheel --outdir dist/
+          if [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
+            pip install build
+            python -m build --sdist --wheel --outdir dist/
+          else
+            echo "⏭️ No pyproject.toml or setup.py found, skipping Python build"
+          fi
 
       - name: Build frontend
-        working-directory: frontend
         run: |
-          npm ci
-          npm run build
+          if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+            cd frontend
+            npm ci
+            npm run build
+          else
+            echo "⏭️ No frontend/ directory found, skipping frontend build"
+          fi
 
       - name: Create release archive
         run: |
@@ -146,9 +154,11 @@ jobs:
             --exclude='venv' \
             .
 
-          # Frontend archive
-          tar -czf release/devchoreo-frontend-${VERSION}.tar.gz \
-            -C frontend/dist .
+          # Frontend archive (only if frontend build exists)
+          if [ -d "frontend/dist" ]; then
+            tar -czf release/devchoreo-frontend-${VERSION}.tar.gz \
+              -C frontend/dist .
+          fi
 
           # Generate checksums
           cd release
