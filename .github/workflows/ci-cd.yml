@@ -1,8 +1,7 @@
 # ============================================================================
-# DevChoreo — CI/CD Pipeline
+# DevChoreo Architecture — CI/CD Pipeline
 # ============================================================================
-# Runs linting, testing, and building for both backend (FastAPI/Python) and
-# frontend (React/Vite) on every push and pull request to main/develop.
+# Validates the architecture diagram HTML file and builds the Docker image.
 # ============================================================================
 
 name: CI/CD Pipeline
@@ -13,12 +12,6 @@ on:
   pull_request:
     branches: [master, develop]
   workflow_dispatch:
-    inputs:
-      run_deploy_gate:
-        description: "Run deploy gate after CI passes"
-        required: false
-        type: boolean
-        default: false
   workflow_call:
 
 concurrency:
@@ -29,279 +22,103 @@ permissions:
   contents: read
   packages: write
 
-env:
-  PYTHON_DEFAULT: "3.12"
-  NODE_DEFAULT: "20"
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
-
 jobs:
   # ──────────────────────────────────────────────────────────────
-  # Backend — Lint, Test, Coverage
+  # Validate HTML
   # ──────────────────────────────────────────────────────────────
-  backend-lint:
-    name: "Backend Lint (Python ${{ matrix.python-version }})"
+  validate-html:
+    name: "Validate HTML"
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-${{ matrix.python-version }}-
-            ${{ runner.os }}-pip-
-
-      - name: Install dependencies
+      - name: Check architecture diagram exists
         run: |
-          python -m pip install --upgrade pip
-          pip install ruff mypy
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-
-      - name: Run Ruff linter
-        run: ruff check . --output-format=github
-
-      - name: Run Ruff formatter check
-        run: ruff format --check .
-
-  backend-test:
-    name: "Backend Test (Python ${{ matrix.python-version }})"
-    runs-on: ubuntu-latest
-    needs: backend-lint
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13"]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements*.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-${{ matrix.python-version }}-
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-cov pytest-asyncio httpx
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-
-      - name: Run tests with coverage
-        run: |
-          if [ -d "tests" ]; then
-            pytest tests/ \
-              --cov=. \
-              --cov-report=xml:coverage.xml \
-              --cov-report=html:htmlcov \
-              --cov-report=term-missing \
-              -v --tb=short
-          else
-            echo "⏭️ No tests/ directory found, skipping tests"
-            echo "## ⚠️ No tests found" >> $GITHUB_STEP_SUMMARY
-            echo "The \`tests/\` directory does not exist yet." >> $GITHUB_STEP_SUMMARY
+          if [ ! -f "architecture-diagram.html" ]; then
+            echo "❌ architecture-diagram.html not found"
+            exit 1
           fi
-        env:
-          APP_ENV: testing
+          echo "✅ architecture-diagram.html found"
 
-      - name: Upload coverage report
-        if: matrix.python-version == '3.12' && hashFiles('coverage.xml') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-coverage-report
-          path: |
-            coverage.xml
-            htmlcov/
-          retention-days: 30
-
-  # ──────────────────────────────────────────────────────────────
-  # Frontend — Lint, Build
-  # ──────────────────────────────────────────────────────────────
-  frontend-lint:
-    name: "Frontend Lint (Node ${{ matrix.node-version }})"
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ["20", "22"]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Check for frontend directory
-        id: check-frontend
+      - name: Validate HTML structure
         run: |
-          if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
+          echo "🔍 Validating HTML file..."
+
+          # Check for required content
+          if grep -q "DevChoreo" architecture-diagram.html; then
+            echo "✅ Contains DevChoreo title"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⏭️ No frontend/ directory found, skipping lint" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Missing DevChoreo title"
+            exit 1
           fi
 
-      - name: Set up Node.js ${{ matrix.node-version }}
-        if: steps.check-frontend.outputs.exists == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
+          if grep -q "<!DOCTYPE html>" architecture-diagram.html; then
+            echo "✅ Valid HTML5 doctype"
+          else
+            echo "❌ Missing HTML5 doctype"
+            exit 1
+          fi
 
-      - name: Cache npm dependencies
-        if: steps.check-frontend.outputs.exists == 'true'
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-npm-${{ matrix.node-version }}-${{ hashFiles('frontend/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-${{ matrix.node-version }}-
-            ${{ runner.os }}-npm-
+          FILE_SIZE=$(stat -c%s architecture-diagram.html)
+          echo "📄 File size: ${FILE_SIZE} bytes"
 
-      - name: Install dependencies
-        if: steps.check-frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: npm ci
+          echo ""
+          echo "✅ HTML validation passed!"
 
-      - name: Run ESLint
-        if: steps.check-frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: npx eslint . --max-warnings=0
+      - name: Validation summary
+        run: |
+          echo "## ✅ HTML Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| File exists | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| HTML5 doctype | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Content check | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
 
-  frontend-build:
-    name: "Frontend Build (Node ${{ matrix.node-version }})"
+  # ──────────────────────────────────────────────────────────────
+  # Docker Build
+  # ──────────────────────────────────────────────────────────────
+  docker-build:
+    name: "Docker Build"
     runs-on: ubuntu-latest
-    needs: frontend-lint
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ["20", "22"]
+    needs: validate-html
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Check for frontend directory
-        id: check-frontend
-        run: |
-          if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⏭️ No frontend/ directory found, skipping build" >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Set up Node.js ${{ matrix.node-version }}
-        if: steps.check-frontend.outputs.exists == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: Cache npm dependencies
-        if: steps.check-frontend.outputs.exists == 'true'
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-npm-${{ matrix.node-version }}-${{ hashFiles('frontend/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-${{ matrix.node-version }}-
-            ${{ runner.os }}-npm-
-
-      - name: Install dependencies
-        if: steps.check-frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build production bundle
-        if: steps.check-frontend.outputs.exists == 'true'
-        working-directory: frontend
-        run: npm run build
-
-      - name: Upload build artifacts
-        if: matrix.node-version == '20' && steps.check-frontend.outputs.exists == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-build
-          path: frontend/dist/
-          retention-days: 30
-
-  # ──────────────────────────────────────────────────────────────
-  # Deploy Gate — Ensures all checks pass
-  # ──────────────────────────────────────────────────────────────
-  deploy-gate:
-    name: "Deploy Gate"
-    runs-on: ubuntu-latest
-    needs: [backend-test, frontend-build]
-    if: |
-      (github.ref == 'refs/heads/master' && github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_deploy_gate == 'true')
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Check for Dockerfile
-        id: check-dockerfile
-        run: |
-          if [ -f "Dockerfile" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⏭️ No Dockerfile found, skipping Docker build" >> $GITHUB_STEP_SUMMARY
-          fi
 
       - name: Set up Docker Buildx
-        if: steps.check-dockerfile.outputs.exists == 'true'
         uses: docker/setup-buildx-action@v3
 
-      - name: Lowercase image name
-        if: steps.check-dockerfile.outputs.exists == 'true'
-        id: image
-        run: echo "name=$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
-      - name: Log in to GitHub Container Registry
-        if: steps.check-dockerfile.outputs.exists == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build Docker image
-        if: steps.check-dockerfile.outputs.exists == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           push: false
           load: true
-          tags: |
-            ${{ steps.image.outputs.name }}:${{ github.sha }}
-            ${{ steps.image.outputs.name }}:latest
+          tags: devchoreo:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Deployment summary
+      - name: Test container serves HTML
         run: |
-          echo "## ✅ Deploy Gate Passed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Backend Tests:** ✅ Passed" >> $GITHUB_STEP_SUMMARY
-          echo "- **Frontend Build:** ✅ Passed" >> $GITHUB_STEP_SUMMARY
-          echo "- **Docker Image:** ${{ steps.check-dockerfile.outputs.exists == 'true' && '✅ Built' || '⏭️ Skipped (no Dockerfile)' }}" >> $GITHUB_STEP_SUMMARY
+          docker run -d --name test-container -p 8080:80 devchoreo:test
+          sleep 3
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080)
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Container serves HTML correctly (HTTP $STATUS)"
+          else
+            echo "❌ Container health check failed (HTTP $STATUS)"
+            docker logs test-container
+            exit 1
+          fi
+          docker stop test-container && docker rm test-container
 
+      - name: Build summary
+        run: |
+          echo "## 🐳 Docker Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Image built | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Container test | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
