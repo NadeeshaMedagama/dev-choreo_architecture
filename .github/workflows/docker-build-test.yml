@@ -81,8 +81,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') }}
-          load: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')) }}
+          push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') }}
+          load: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop')) }}
           tags: |
             ${{ steps.meta.outputs.tags }}
             ${{ env.IMAGE_NAME }}:local
@@ -104,7 +104,7 @@ jobs:
           echo "| **Docker Hub Image** | \`${{ env.DOCKERHUB_IMAGE }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Tags** | \`${{ steps.meta.outputs.tags }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **SHA** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Pushed** | ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && '✅ Yes' || '⏭️ Skipped (PR)' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Pushed** | ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') && '✅ Yes' || '⏭️ Skipped (PR)' }} |" >> $GITHUB_STEP_SUMMARY
 
       - name: Save Docker image for testing
         run: docker save ${{ env.IMAGE_NAME }}:local -o /tmp/docker-image.tar
@@ -215,12 +215,22 @@ jobs:
     name: "Docker Compose Test"
     runs-on: ubuntu-latest
     needs: docker-build
-    if: hashFiles('docker-compose*.yml') != ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check for docker-compose file
+        id: check-compose
+        run: |
+          if ls docker-compose*.yml 1> /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No docker-compose file found, skipping test" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Create test .env file
+        if: steps.check-compose.outputs.exists == 'true'
         run: |
           cat > .env << 'EOF'
           APP_ENV=testing
@@ -235,9 +245,11 @@ jobs:
           EOF
 
       - name: Start services with Docker Compose
+        if: steps.check-compose.outputs.exists == 'true'
         run: docker compose up -d --build
 
       - name: Wait for services
+        if: steps.check-compose.outputs.exists == 'true'
         run: |
           echo "⏳ Waiting for services to start..."
           SECONDS=0
@@ -252,19 +264,20 @@ jobs:
           echo "✅ All services are running after ${SECONDS}s"
 
       - name: Run integration checks
+        if: steps.check-compose.outputs.exists == 'true'
         run: |
           echo "🔍 Running integration checks..."
           curl -sf http://localhost:8000/api/health | python3 -m json.tool
           echo "✅ Integration checks passed!"
 
       - name: Cleanup
-        if: always()
+        if: always() && steps.check-compose.outputs.exists == 'true'
         run: |
           docker compose logs > /tmp/compose-logs.txt 2>&1 || true
           docker compose down -v || true
 
       - name: Upload compose logs
-        if: always()
+        if: always() && steps.check-compose.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: docker-compose-logs
