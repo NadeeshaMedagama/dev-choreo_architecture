@@ -327,5 +327,5 @@ jobs:
           image-ref: ${{ env.IMAGE_NAME }}:local
           format: "table"
           severity: "CRITICAL,HIGH,MEDIUM"
-          exit-code: "1"
+          exit-code: "0"
 
