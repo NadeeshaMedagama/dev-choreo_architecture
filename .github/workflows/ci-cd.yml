@@ -101,17 +101,23 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest tests/ \
-            --cov=. \
-            --cov-report=xml:coverage.xml \
-            --cov-report=html:htmlcov \
-            --cov-report=term-missing \
-            -v --tb=short
+          if [ -d "tests" ]; then
+            pytest tests/ \
+              --cov=. \
+              --cov-report=xml:coverage.xml \
+              --cov-report=html:htmlcov \
+              --cov-report=term-missing \
+              -v --tb=short
+          else
+            echo "⏭️ No tests/ directory found, skipping tests"
+            echo "## ⚠️ No tests found" >> $GITHUB_STEP_SUMMARY
+            echo "The \`tests/\` directory does not exist yet." >> $GITHUB_STEP_SUMMARY
+          fi
         env:
           APP_ENV: testing
 
       - name: Upload coverage report
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.12' && hashFiles('coverage.xml') != ''
         uses: actions/upload-artifact@v4
         with:
           name: backend-coverage-report
@@ -134,12 +140,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check for frontend directory
+        id: check-frontend
+        run: |
+          if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No frontend/ directory found, skipping lint" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Set up Node.js ${{ matrix.node-version }}
+        if: steps.check-frontend.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
 
       - name: Cache npm dependencies
+        if: steps.check-frontend.outputs.exists == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.npm
@@ -149,10 +167,12 @@ jobs:
             ${{ runner.os }}-npm-
 
       - name: Install dependencies
+        if: steps.check-frontend.outputs.exists == 'true'
         working-directory: frontend
         run: npm ci
 
       - name: Run ESLint
+        if: steps.check-frontend.outputs.exists == 'true'
         working-directory: frontend
         run: npx eslint . --max-warnings=0
 
@@ -168,12 +188,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check for frontend directory
+        id: check-frontend
+        run: |
+          if [ -d "frontend" ] && [ -f "frontend/package.json" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⏭️ No frontend/ directory found, skipping build" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Set up Node.js ${{ matrix.node-version }}
+        if: steps.check-frontend.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
 
       - name: Cache npm dependencies
+        if: steps.check-frontend.outputs.exists == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.npm
@@ -183,15 +215,17 @@ jobs:
             ${{ runner.os }}-npm-
 
       - name: Install dependencies
+        if: steps.check-frontend.outputs.exists == 'true'
         working-directory: frontend
         run: npm ci
 
       - name: Build production bundle
+        if: steps.check-frontend.outputs.exists == 'true'
         working-directory: frontend
         run: npm run build
 
       - name: Upload build artifacts
-        if: matrix.node-version == '20'
+        if: matrix.node-version == '20' && steps.check-frontend.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: frontend-build
