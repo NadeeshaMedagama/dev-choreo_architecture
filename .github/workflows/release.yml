@@ -180,6 +180,10 @@ jobs:
           name: release-artifacts
           path: release/
 
+      - name: Lowercase image name
+        id: lowercase
+        run: echo "image_name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Generate changelog
         id: changelog
         run: |
@@ -207,21 +211,21 @@ jobs:
             git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges >> release-notes.md
           fi
 
-          cat >> release-notes.md << 'NOTES_EOF'
+          cat >> release-notes.md << NOTES_EOF
 
           ### 📦 Installation
 
-          ```bash
+          \`\`\`bash
           # Docker
-          docker pull ghcr.io/${{ github.repository }}:${{ needs.validate.outputs.version }}
+          docker pull ghcr.io/${{ steps.lowercase.outputs.image_name }}:${{ needs.validate.outputs.version }}
 
           # Or download the release artifacts below
-          ```
+          \`\`\`
 
           ### 🔗 Links
           - [Documentation](https://github.com/${{ github.repository }}#readme)
           - [Architecture Diagram](https://github.com/${{ github.repository }}/blob/main/architecture-diagram.html)
-          - [Docker Image](https://ghcr.io/${{ github.repository }})
+          - [Docker Image](https://ghcr.io/${{ steps.lowercase.outputs.image_name }})
           NOTES_EOF
 
       - name: Create GitHub Release
